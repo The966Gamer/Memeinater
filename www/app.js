@@ -8,7 +8,6 @@
   var CFG = window.MEMEINATER || {};
   var root = document.getElementById('root');
   var toastEl = document.getElementById('toast');
-  var EMAIL_DOMAIN = '@gmail.com';
   var EMOJIS = ['\uD83D\uDD0A', '\uD83D\uDCA5', '\uD83D\uDE02', '\uD83D\uDE2D', '\uD83D\uDC80', '\uD83D\uDD25', '\uD83C\uDFB5', '\uD83D\uDC38', '\uD83D\uDC40', '\uD83E\uDD21', '\uD83D\uDE0E', '\uD83D\uDEA8'];
   var MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', webm: 'audio/webm' };
 
