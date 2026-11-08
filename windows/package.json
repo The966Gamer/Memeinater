@@ -1,0 +1,26 @@
+{
+  "name": "memeinater-6700-windows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MEMEINATER 6700 for Windows",
+  "author": "Khaleel",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.khaleel.memeinater",
+    "productName": "MEMEINATER 6700",
+    "files": ["main.js", "www/**/*"],
+    "directories": { "output": "dist" },
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    }
+  }
+}
