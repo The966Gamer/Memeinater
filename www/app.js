@@ -150,40 +150,166 @@
     ui.badge.style.display = n ? 'inline-block' : 'none';
   }
 
-  // ---------- auth screens ----------
+    // ---------- auth screens ----------
   function authView(mode) {
     root.innerHTML = '';
-    var u = h('input', { class: 'field', placeholder: 'username', autocapitalize: 'none', autocomplete: 'username' });
-    var p = h('input', { class: 'field', type: 'password', placeholder: 'password', autocomplete: mode === 'login' ? 'current-password' : 'new-password' });
-    var c = h('input', { class: 'field', placeholder: 'gang code', autocapitalize: 'characters' });
-    var err = h('div', { class: 'err' });
-    var go = h('button', { class: 'btn', text: mode === 'login' ? 'LOG IN' : (mode === 'signup' ? 'JOIN THE GANG' : 'FINISH') });
 
-    function name() { return u.value.trim(); }
+    var u = h('input', {
+      class: 'field',
+      placeholder: 'username',
+      autocapitalize: 'none',
+      autocomplete: 'username',
+      maxlength: '20'
+    });
+
+    var email = h('input', {
+      class: 'field',
+      type: 'email',
+      placeholder: 'email address',
+      autocomplete: 'email',
+      autocapitalize: 'none'
+    });
+
+    var p = h('input', {
+      class: 'field',
+      type: 'password',
+      placeholder: 'password',
+      autocomplete: mode === 'login' ? 'current-password' : 'new-password'
+    });
+
+    var c = h('input', {
+      class: 'field',
+      placeholder: 'gang code',
+      autocapitalize: 'characters'
+    });
+
+    var err = h('div', { class: 'err' });
+
+    var go = h('button', {
+      class: 'btn',
+      text: mode === 'login'
+        ? 'LOG IN'
+        : mode === 'signup'
+          ? 'JOIN THE GANG'
+          : 'FINISH'
+    });
+
+    function username() {
+      return u.value.trim();
+    }
+
+    function userEmail() {
+      return email.value.trim().toLowerCase();
+    }
+
+    function validEmail(value) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    }
 
     go.addEventListener('click', async function () {
       err.textContent = '';
       go.disabled = true;
+
       try {
         if (mode === 'login') {
-          var r = await sb.auth.signInWithPassword({ email: name().toLowerCase() + EMAIL_DOMAIN, password: p.value });
-          if (r.error) throw new Error('Wrong username or password');
+          if (!validEmail(userEmail())) {
+            throw new Error('Enter a valid email address');
+          }
+
+          if (!p.value) {
+            throw new Error('Enter your password');
+          }
+
+          var loginResult = await sb.auth.signInWithPassword({
+            email: userEmail(),
+            password: p.value
+          });
+
+          if (loginResult.error) {
+            throw new Error('Incorrect email or password');
+          }
+
         } else if (mode === 'signup') {
-          if (!/^[A-Za-z0-9_]{2,20}$/.test(name())) throw new Error('Username: 2-20 letters, numbers or _');
-          if (p.value.length < 6) throw new Error('Password needs 6+ characters');
-          var ok = await sb.rpc('check_code', { p_code: c.value });
-          if (ok.error) throw ok.error;
-          if (!ok.data) throw new Error('Wrong gang code');
-          var s = await sb.auth.signUp({ email: name().toLowerCase() + EMAIL_DOMAIN, password: p.value });
-          if (s.error) throw new Error(/registered/i.test(s.error.message) ? 'That username is taken' : s.error.message);
-          if (!s.data.session) throw new Error('Supabase still has "Confirm email" turned on. Turn it off in Authentication settings.');
-          var f = await sb.rpc('finish_signup', { p_username: name(), p_code: c.value });
-          if (f.error) throw f.error;
+          if (!/^[A-Za-z0-9_]{2,20}$/.test(username())) {
+            throw new Error('Username: 2-20 letters, numbers or _');
+          }
+
+          if (!validEmail(userEmail())) {
+            throw new Error('Enter a valid email address');
+          }
+
+          if (p.value.length < 6) {
+            throw new Error('Password needs 6+ characters');
+          }
+
+          if (!c.value.trim()) {
+            throw new Error('Enter the gang code');
+          }
+
+          var codeCheck = await sb.rpc('check_code', {
+            p_code: c.value.trim()
+          });
+
+          if (codeCheck.error) throw codeCheck.error;
+
+          if (!codeCheck.data) {
+            throw new Error('Wrong gang code');
+          }
+
+          var signupResult = await sb.auth.signUp({
+            email: userEmail(),
+            password: p.value,
+            options: {
+              data: {
+                username: username()
+              }
+            }
+          });
+
+          if (signupResult.error) {
+            if (/already registered|already been registered/i.test(
+              signupResult.error.message
+            )) {
+              throw new Error('This email is already registered. Try logging in.');
+            }
+
+            throw signupResult.error;
+          }
+
+          if (!signupResult.data.session) {
+            err.textContent =
+              'Account created! Check your email and verify your address. Then log in to finish setting up your username.';
+            go.textContent = 'CHECK YOUR EMAIL';
+            go.disabled = true;
+            return;
+          }
+
+          var finishResult = await sb.rpc('finish_signup', {
+            p_username: username(),
+            p_code: c.value.trim()
+          });
+
+          if (finishResult.error) throw finishResult.error;
+
         } else {
-          var f2 = await sb.rpc('finish_signup', { p_username: name(), p_code: c.value });
-          if (f2.error) throw f2.error;
+          if (!/^[A-Za-z0-9_]{2,20}$/.test(username())) {
+            throw new Error('Username: 2-20 letters, numbers or _');
+          }
+
+          if (!c.value.trim()) {
+            throw new Error('Enter the gang code');
+          }
+
+          var finishResult2 = await sb.rpc('finish_signup', {
+            p_username: username(),
+            p_code: c.value.trim()
+          });
+
+          if (finishResult2.error) throw finishResult2.error;
         }
+
         await boot();
+
       } catch (e) {
         err.textContent = e.message || String(e);
         go.disabled = false;
@@ -192,26 +318,52 @@
 
     var box = h('div', { class: 'auth' }, [
       h('div', { class: 'logo', text: 'MEMEINATER 6700' }),
-      h('div', { class: 'sub', text: mode === 'finish' ? 'pick a username and enter the gang code' : 'friends only' }),
-      u
+      h('div', {
+        class: 'sub',
+        text: mode === 'finish'
+          ? 'pick a username and enter the gang code'
+          : 'friends only'
+      })
     ]);
-    if (mode !== 'finish') box.appendChild(p);
-    if (mode !== 'login') box.appendChild(c);
+
+    if (mode === 'login') {
+      box.appendChild(email);
+      box.appendChild(p);
+    } else if (mode === 'signup') {
+      box.appendChild(u);
+      box.appendChild(email);
+      box.appendChild(p);
+      box.appendChild(c);
+    } else {
+      box.appendChild(u);
+      box.appendChild(c);
+    }
+
     box.appendChild(err);
     box.appendChild(go);
 
     if (mode === 'finish') {
-      box.appendChild(h('div', { class: 'link', text: 'sign out', onclick: function () { sb.auth.signOut(); } }));
+      box.appendChild(h('div', {
+        class: 'link',
+        text: 'sign out',
+        onclick: function () {
+          sb.auth.signOut();
+        }
+      }));
     } else {
       box.appendChild(h('div', {
         class: 'link',
-        text: mode === 'login' ? 'new here? join the gang' : 'already in? log in',
-        onclick: function () { authView(mode === 'login' ? 'signup' : 'login'); }
+        text: mode === 'login'
+          ? 'new here? join the gang'
+          : 'already in? log in',
+        onclick: function () {
+          authView(mode === 'login' ? 'signup' : 'login');
+        }
       }));
     }
+
     root.appendChild(box);
   }
-
   // ---------- app shell ----------
   function appView() {
     root.innerHTML = '';
