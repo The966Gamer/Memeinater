@@ -48,6 +48,32 @@
     });
   }
 
+  var ICONS = {
+    board: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+    groups: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14.2c2.6.2 4.5 2 4.5 4.8"/>',
+    inbox: '<path d="M3 13l3-8h12l3 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 13h5l1 2h6l1-2h5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    shuffle: '<path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>',
+    stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
+    back: '<path d="M15 5l-7 7 7 7"/>',
+    chev: '<path d="M9 5l7 7-7 7"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+    play: '<path d="M8 5v14l11-7z" fill="currentColor"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>'
+  };
+  function icon(name, size) {
+    var sp = document.createElement('span');
+    sp.className = 'ic';
+    sp.innerHTML = '<svg viewBox="0 0 24 24" width="' + (size || 24) + '" height="' + (size || 24) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + '</svg>';
+    return sp;
+  }
+  function hue(str) { var x = 0; for (var i = 0; i < str.length; i++) x = (x * 31 + str.charCodeAt(i)) % 360; return x; }
+  function tint(el, str) {
+    var hh = hue(str);
+    el.style.setProperty('--c1', 'hsl(' + hh + ',55%,30%)');
+    el.style.setProperty('--c2', 'hsl(' + ((hh + 40) % 360) + ',60%,17%)');
+  }
+
   function sheet(title, nodes) {
     var bg = h('div', { class: 'sheetbg' });
     var sh = h('div', { class: 'sheet' }, [h('h3', { text: title })].concat(nodes));
@@ -78,10 +104,18 @@
   var ui = {};
   var audio = new Audio();
   var playingEl = null;
+  var currentGroup = null;
 
   // ---------- audio ----------
   function urlFor(path) { return sb.storage.from('sounds').getPublicUrl(path).data.publicUrl; }
-  function clearPlaying() { if (playingEl) { playingEl.classList.remove('playing'); playingEl = null; } }
+  function showNow(s) {
+    if (!ui.now) return;
+    ui.nowE.textContent = s.emoji;
+    ui.nowN.textContent = s.name;
+    ui.now.className = 'now show';
+  }
+  function hideNow() { if (ui.now) ui.now.className = 'now'; }
+  function clearPlaying() { if (playingEl) { playingEl.classList.remove('playing'); playingEl = null; } hideNow(); }
   function stopAudio() { try { audio.pause(); audio.currentTime = 0; } catch (e) {} clearPlaying(); }
   audio.addEventListener('ended', clearPlaying);
   audio.addEventListener('error', function () { clearPlaying(); });
@@ -90,6 +124,7 @@
     stopAudio();
     playingEl = el;
     if (el) el.classList.add('playing');
+    showNow(s);
     audio.src = urlFor(s.path);
     var p = audio.play();
     if (p && p.catch) p.catch(function () { clearPlaying(); toast('Could not play that one'); });
@@ -100,9 +135,12 @@
       h('span', { class: 'e', text: s.emoji }),
       h('span', { class: 'n', text: s.name })
     ]);
+    el._s = s;
+    tint(el, s.name + s.emoji);
     var t = null, long = false;
     el.addEventListener('pointerdown', function () {
       long = false;
+      setFocusEl(el);
       t = setTimeout(function () { long = true; if (navigator.vibrate) navigator.vibrate(30); onLong(s); }, 500);
     });
     el.addEventListener('pointerup', function () { clearTimeout(t); if (!long) playSound(s, el); });
@@ -111,6 +149,50 @@
     el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     return el;
   }
+
+  // ---------- focus, random, keys (same controls as the 8110 version) ----------
+  var focusEl = null;
+  var lastRandom = -1;
+  function gridTiles() { return ui.content ? Array.prototype.slice.call(ui.content.querySelectorAll('.tile')) : []; }
+  function setFocusEl(el) {
+    if (focusEl) focusEl.classList.remove('focus');
+    focusEl = el;
+    if (el) {
+      el.classList.add('focus');
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }
+  }
+  function moveFocus(d) {
+    var all = gridTiles();
+    if (!all.length) return;
+    var i = focusEl ? all.indexOf(focusEl) : -1;
+    setFocusEl(all[i < 0 ? 0 : Math.max(0, Math.min(all.length - 1, i + d))]);
+  }
+  function randomPlay() {
+    var all = gridTiles();
+    if (!all.length) return;
+    var n;
+    do { n = Math.floor(Math.random() * all.length); } while (n === lastRandom && all.length > 1);
+    lastRandom = n;
+    setFocusEl(all[n]);
+    playSound(all[n]._s, all[n]);
+  }
+  document.addEventListener('keydown', function (e) {
+    var t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || !me || !ui.content || document.querySelector('.sheetbg')) return;
+    var g = ui.content.querySelector('.grid');
+    var cols = g ? (getComputedStyle(g).gridTemplateColumns || '').split(' ').length : 3;
+    var k = e.key, used = true;
+    if (k === 'ArrowLeft' || k === '4') moveFocus(-1);
+    else if (k === 'ArrowRight' || k === '6') moveFocus(1);
+    else if (k === 'ArrowUp' || k === '2') moveFocus(-cols);
+    else if (k === 'ArrowDown' || k === '8') moveFocus(cols);
+    else if ((k === 'Enter' || k === '5') && focusEl && (tag === 'BODY' || (t.classList && t.classList.contains('tile')))) playSound(focusEl._s, focusEl);
+    else if (k === '0') randomPlay();
+    else if (k === '*') stopAudio();
+    else used = false;
+    if (used) e.preventDefault();
+  });
 
   // ---------- data ----------
   async function loadMe() {
@@ -150,257 +232,186 @@
     ui.badge.style.display = n ? 'inline-block' : 'none';
   }
 
-    // ---------- auth screens ----------
-  function authView(mode) {
+  // ---------- auth screens ----------
+  var recovering = false;
+
+  function getPending() { try { return JSON.parse(localStorage.getItem('mm_pending') || 'null'); } catch (e) { return null; } }
+  function setPending(v) {
+    try { if (v) localStorage.setItem('mm_pending', JSON.stringify(v)); else localStorage.removeItem('mm_pending'); } catch (e) {}
+  }
+  function isWeb() { return /^https?:$/.test(location.protocol); }
+
+  function niceError(e) {
+    var m = (e && e.message) || String(e);
+    if (/profiles_username_key|duplicate key/i.test(m)) return 'That username is taken, pick another one';
+    if (/not confirmed/i.test(m)) return 'Confirm your email first (check your inbox and spam)';
+    return m;
+  }
+
+  function authView(mode, msg, info) {
     root.innerHTML = '';
+    var em = h('input', { class: 'field', type: 'email', placeholder: 'email', autocapitalize: 'none', autocomplete: 'email' });
+    var u = h('input', { class: 'field', placeholder: 'username', autocapitalize: 'none', autocomplete: 'username' });
+    var p = h('input', { class: 'field', type: 'password', placeholder: mode === 'recover' ? 'new password' : 'password', autocomplete: mode === 'login' ? 'current-password' : 'new-password' });
+    var c = h('input', { class: 'field', placeholder: 'gang code', autocapitalize: 'characters' });
+    var err = h('div', { class: 'err', text: msg || '' });
+    if (info) err.style.color = '#7bd88f';
+    var labels = { login: 'Log in', signup: 'Join the gang', finish: 'Finish', forgot: 'Send reset email', recover: 'Save new password' };
+    var subs = {
+      login: 'friends only',
+      signup: 'friends only',
+      finish: 'pick a username and enter the gang code',
+      forgot: 'we will email you a reset link',
+      recover: 'choose a new password'
+    };
+    var go = h('button', { class: 'btn', text: labels[mode] });
 
-    var u = h('input', {
-      class: 'field',
-      placeholder: 'username',
-      autocapitalize: 'none',
-      autocomplete: 'username',
-      maxlength: '20'
-    });
-
-    var email = h('input', {
-      class: 'field',
-      type: 'email',
-      placeholder: 'email address',
-      autocomplete: 'email',
-      autocapitalize: 'none'
-    });
-
-    var p = h('input', {
-      class: 'field',
-      type: 'password',
-      placeholder: 'password',
-      autocomplete: mode === 'login' ? 'current-password' : 'new-password'
-    });
-
-    var c = h('input', {
-      class: 'field',
-      placeholder: 'gang code',
-      autocapitalize: 'characters'
-    });
-
-    var err = h('div', { class: 'err' });
-
-    var go = h('button', {
-      class: 'btn',
-      text: mode === 'login'
-        ? 'LOG IN'
-        : mode === 'signup'
-          ? 'JOIN THE GANG'
-          : 'FINISH'
-    });
-
-    function username() {
-      return u.value.trim();
-    }
-
-    function userEmail() {
-      return email.value.trim().toLowerCase();
-    }
-
-    function validEmail(value) {
-      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    if (mode === 'finish') {
+      var pend = getPending();
+      if (pend) { u.value = pend.username || ''; c.value = pend.code || ''; }
     }
 
     go.addEventListener('click', async function () {
+      err.style.color = '';
       err.textContent = '';
       go.disabled = true;
-
       try {
+        var email = em.value.trim().toLowerCase();
+        var name = u.value.trim();
         if (mode === 'login') {
-          if (!validEmail(userEmail())) {
-            throw new Error('Enter a valid email address');
-          }
-
-          if (!p.value) {
-            throw new Error('Enter your password');
-          }
-
-          var loginResult = await sb.auth.signInWithPassword({
-            email: userEmail(),
-            password: p.value
-          });
-
-          if (loginResult.error) {
-            throw new Error('Incorrect email or password');
-          }
-
+          if (!email || !p.value) throw new Error('Enter your email and password');
+          var r = await sb.auth.signInWithPassword({ email: email, password: p.value });
+          if (r.error) throw new Error(/not confirmed/i.test(r.error.message) ? niceError(r.error) : 'Wrong email or password');
         } else if (mode === 'signup') {
-          if (!/^[A-Za-z0-9_]{2,20}$/.test(username())) {
-            throw new Error('Username: 2-20 letters, numbers or _');
+          if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a real email address');
+          if (!/^[A-Za-z0-9_]{2,20}$/.test(name)) throw new Error('Username: 2-20 letters, numbers or _');
+          if (p.value.length < 6) throw new Error('Password needs 6+ characters');
+          var ok = await sb.rpc('check_code', { p_code: c.value });
+          if (ok.error) throw ok.error;
+          if (!ok.data) throw new Error('Wrong gang code');
+          var opts = isWeb() ? { emailRedirectTo: location.origin + location.pathname } : {};
+          var s = await sb.auth.signUp({ email: email, password: p.value, options: opts });
+          if (s.error) throw new Error(/registered/i.test(s.error.message) ? 'That email already has an account, try logging in' : s.error.message);
+          if (s.data.user && s.data.user.identities && s.data.user.identities.length === 0) {
+            throw new Error('That email already has an account, try logging in');
           }
-
-          if (!validEmail(userEmail())) {
-            throw new Error('Enter a valid email address');
-          }
-
-          if (p.value.length < 6) {
-            throw new Error('Password needs 6+ characters');
-          }
-
-          if (!c.value.trim()) {
-            throw new Error('Enter the gang code');
-          }
-
-          var codeCheck = await sb.rpc('check_code', {
-            p_code: c.value.trim()
-          });
-
-          if (codeCheck.error) throw codeCheck.error;
-
-          if (!codeCheck.data) {
-            throw new Error('Wrong gang code');
-          }
-
-          var signupResult = await sb.auth.signUp({
-            email: userEmail(),
-            password: p.value,
-            options: {
-              data: {
-                username: username()
-              }
-            }
-          });
-
-          if (signupResult.error) {
-            if (/already registered|already been registered/i.test(
-              signupResult.error.message
-            )) {
-              throw new Error('This email is already registered. Try logging in.');
-            }
-
-            throw signupResult.error;
-          }
-
-          if (!signupResult.data.session) {
-            err.textContent =
-              'Account created! Check your email and verify your address. Then log in to finish setting up your username.';
-            go.textContent = 'CHECK YOUR EMAIL';
-            go.disabled = true;
+          if (!s.data.session) {
+            // email confirmation is on: finish the profile automatically after the first login
+            setPending({ username: name, code: c.value.trim() });
+            authView('login', 'Check your email and tap the confirm link, then log in here.', true);
             return;
           }
-
-          var finishResult = await sb.rpc('finish_signup', {
-            p_username: username(),
-            p_code: c.value.trim()
-          });
-
-          if (finishResult.error) throw finishResult.error;
-
-        } else {
-          if (!/^[A-Za-z0-9_]{2,20}$/.test(username())) {
-            throw new Error('Username: 2-20 letters, numbers or _');
-          }
-
-          if (!c.value.trim()) {
-            throw new Error('Enter the gang code');
-          }
-
-          var finishResult2 = await sb.rpc('finish_signup', {
-            p_username: username(),
-            p_code: c.value.trim()
-          });
-
-          if (finishResult2.error) throw finishResult2.error;
+          var f = await sb.rpc('finish_signup', { p_username: name, p_code: c.value });
+          if (f.error) throw f.error;
+        } else if (mode === 'finish') {
+          var f2 = await sb.rpc('finish_signup', { p_username: name, p_code: c.value });
+          if (f2.error) throw f2.error;
+          setPending(null);
+        } else if (mode === 'forgot') {
+          if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter your email address');
+          var fr = await sb.auth.resetPasswordForEmail(email, isWeb() ? { redirectTo: location.origin + location.pathname } : {});
+          if (fr.error) throw fr.error;
+          authView('login', 'If that email has an account, a reset link is on its way.', true);
+          return;
+        } else if (mode === 'recover') {
+          if (p.value.length < 6) throw new Error('Password needs 6+ characters');
+          var up = await sb.auth.updateUser({ password: p.value });
+          if (up.error) throw up.error;
+          recovering = false;
+          toast('Password changed');
         }
-
         await boot();
-
       } catch (e) {
-        err.textContent = e.message || String(e);
+        err.textContent = niceError(e);
         go.disabled = false;
       }
     });
 
     var box = h('div', { class: 'auth' }, [
+      h('div', { class: 'mark', text: '\uD83D\uDD0A' }),
       h('div', { class: 'logo', text: 'MEMEINATER 6700' }),
-      h('div', {
-        class: 'sub',
-        text: mode === 'finish'
-          ? 'pick a username and enter the gang code'
-          : 'friends only'
-      })
+      h('div', { class: 'sub', text: subs[mode] })
     ]);
-
-    if (mode === 'login') {
-      box.appendChild(email);
-      box.appendChild(p);
-    } else if (mode === 'signup') {
-      box.appendChild(u);
-      box.appendChild(email);
-      box.appendChild(p);
-      box.appendChild(c);
-    } else {
-      box.appendChild(u);
-      box.appendChild(c);
-    }
-
+    if (mode === 'login' || mode === 'signup' || mode === 'forgot') box.appendChild(em);
+    if (mode === 'signup' || mode === 'finish') box.appendChild(u);
+    if (mode === 'login' || mode === 'signup' || mode === 'recover') box.appendChild(p);
+    if (mode === 'signup' || mode === 'finish') box.appendChild(c);
     box.appendChild(err);
     box.appendChild(go);
 
-    if (mode === 'finish') {
-      box.appendChild(h('div', {
-        class: 'link',
-        text: 'sign out',
-        onclick: function () {
-          sb.auth.signOut();
-        }
-      }));
-    } else {
-      box.appendChild(h('div', {
-        class: 'link',
-        text: mode === 'login'
-          ? 'new here? join the gang'
-          : 'already in? log in',
-        onclick: function () {
-          authView(mode === 'login' ? 'signup' : 'login');
-        }
-      }));
+    function link(text, fn) { box.appendChild(h('div', { class: 'link', text: text, onclick: fn })); }
+    if (mode === 'login') {
+      link('new here? join the gang', function () { authView('signup'); });
+      link('forgot password?', function () { authView('forgot'); });
+    } else if (mode === 'signup') {
+      link('already in? log in', function () { authView('login'); });
+    } else if (mode === 'forgot') {
+      link('back to log in', function () { authView('login'); });
+    } else if (mode === 'finish') {
+      link('sign out', function () { sb.auth.signOut(); });
     }
-
     root.appendChild(box);
   }
+
   // ---------- app shell ----------
+  function navItem(ic, label, fn, extra) {
+    var kids = [icon(ic, 24), h('span', { text: label })];
+    if (extra) kids.push(extra);
+    return h('button', { class: 'ni', onclick: fn }, kids);
+  }
+
   function appView() {
     root.innerHTML = '';
-    ui.back = h('button', { class: 'iconbtn', text: '<', onclick: function () { showGroups(); } });
+    ui.back = h('button', { class: 'round back', onclick: function () { showGroups(); } }, [icon('back', 22)]);
     ui.title = h('div', { class: 'title' });
-    ui.who = h('button', { class: 'iconbtn', text: me.username, onclick: accountSheet });
-    var stop = h('button', { class: 'iconbtn stop', text: 'STOP', onclick: stopAudio });
+    ui.who = h('button', { class: 'avatar', text: me.username.charAt(0).toUpperCase(), onclick: accountSheet });
     ui.content = h('div', { class: 'content' });
     ui.badge = h('span', { class: 'badge' });
     ui.badge.style.display = 'none';
 
-    ui.nbBoard = h('button', { text: 'BOARD', onclick: showBoard });
-    ui.nbGroups = h('button', { text: 'GROUPS', onclick: showGroups });
-    ui.nbInbox = h('button', { onclick: showInbox }, ['INBOX', ui.badge]);
+    ui.nbBoard = navItem('board', 'Board', showBoard);
+    ui.nbGroups = navItem('groups', 'Groups', showGroups);
+    ui.nbInbox = navItem('inbox', 'Inbox', showInbox, ui.badge);
 
-    root.appendChild(h('div', { class: 'top' }, [ui.back, ui.title, stop, ui.who]));
+    ui.nowE = h('span', { class: 'ne' });
+    ui.nowN = h('span', { class: 'nn' });
+    ui.now = h('div', { class: 'now' }, [ui.nowE, ui.nowN, h('button', { class: 'round', onclick: stopAudio }, [icon('stop', 18)])]);
+    ui.fab = h('button', { class: 'fab', onclick: function () { if (ui.midFn) ui.midFn(); } }, [icon('plus', 26)]);
+
+    root.appendChild(h('div', { class: 'top' }, [ui.back, ui.title, ui.who]));
     root.appendChild(ui.content);
+    root.appendChild(ui.now);
+    root.appendChild(ui.fab);
     root.appendChild(h('div', { class: 'nav' }, [ui.nbBoard, ui.nbGroups, ui.nbInbox]));
     showBoard();
   }
 
   function setView(name, title, showBack) {
     tab = name;
+    focusEl = null;
+    ui.baseTitle = title;
     ui.title.textContent = title;
-    ui.back.style.display = showBack ? '' : 'none';
-    ui.nbBoard.className = name === 'board' ? 'on' : '';
-    ui.nbGroups.className = (name === 'groups' || name === 'group') ? 'on' : '';
-    ui.nbInbox.className = name === 'inbox' ? 'on' : '';
+    ui.back.style.display = showBack ? 'inline-flex' : 'none';
+    ui.nbBoard.className = 'ni' + (name === 'board' ? ' on' : '');
+    ui.nbGroups.className = 'ni' + ((name === 'groups' || name === 'group') ? ' on' : '');
+    ui.nbInbox.className = 'ni' + (name === 'inbox' ? ' on' : '');
+    var mids = {
+      board: addSoundSheet,
+      groups: newGroupSheet,
+      group: function () { if (currentGroup) pickFromBoardSheet(currentGroup); },
+      inbox: null
+    };
+    ui.midFn = mids[name];
+    ui.fab.style.display = mids[name] ? 'flex' : 'none';
     ui.content.innerHTML = '';
     ui.content.appendChild(h('div', { class: 'empty', text: 'loading...' }));
     refreshBadge().catch(function () {});
   }
 
   function accountSheet() {
-    var s = sheet('Signed in as ' + me.username, [
-      h('button', { class: 'btn red', text: 'SIGN OUT', onclick: function () { s.close(); stopAudio(); sb.auth.signOut(); } }),
-      h('button', { class: 'btn ghost', text: 'CLOSE', onclick: function () { s.close(); } })
+    var s = sheet(me.username, [
+      h('button', { class: 'btn red', text: 'Sign out', onclick: function () { s.close(); stopAudio(); sb.auth.signOut(); } }),
+      h('button', { class: 'btn ghost', text: 'Close', onclick: function () { s.close(); } })
     ]);
   }
 
@@ -408,7 +419,7 @@
   var boardFilter = '';
 
   async function showBoard() {
-    setView('board', 'MY BOARD', false);
+    setView('board', 'Sounds', false);
     try {
       var list = await fetchMySounds();
       renderBoard(list);
@@ -417,14 +428,14 @@
 
   function renderBoard(list) {
     ui.content.innerHTML = '';
-    var search = h('input', { class: 'field', placeholder: 'search...', value: boardFilter });
+    var search = h('input', { class: 'sinput', placeholder: 'Search sounds', value: boardFilter });
     var grid = h('div', { class: 'grid' });
     function fill() {
       grid.innerHTML = '';
       var q = boardFilter.toLowerCase();
       var shown = list.filter(function (s) { return !q || s.name.toLowerCase().indexOf(q) >= 0; });
       if (!shown.length) {
-        grid.appendChild(h('div', { class: 'empty', text: list.length ? 'Nothing found.' : 'No sounds yet. Tap + SOUND to add your first one, or accept one from a friend in INBOX.' }));
+        grid.appendChild(h('div', { class: 'empty', text: list.length ? 'Nothing found.' : 'No sounds yet. Tap + to add your first one, or accept one a friend sent you in Inbox.' }));
         return;
       }
       shown.forEach(function (s) {
@@ -432,7 +443,10 @@
       });
     }
     search.addEventListener('input', function () { boardFilter = search.value.trim(); fill(); });
-    ui.content.appendChild(h('div', { class: 'bar' }, [search, h('button', { class: 'btn small', text: '+ SOUND', onclick: addSoundSheet })]));
+    ui.content.appendChild(h('div', { class: 'bar' }, [
+      h('div', { class: 'searchbox' }, [icon('search', 18), search]),
+      h('button', { class: 'round big', onclick: randomPlay }, [icon('shuffle', 20)])
+    ]));
     ui.content.appendChild(h('div', { class: 'hint', text: 'Tap to play. Hold a sound for more.' }));
     ui.content.appendChild(grid);
     fill();
@@ -441,10 +455,10 @@
   function boardActions(s) {
     var sh = sheet(s.emoji + ' ' + s.name, []);
     var box = sh.box;
-    box.appendChild(h('button', { class: 'btn', text: 'SEND TO A FRIEND', onclick: function () { sh.close(); sendSheet(s); } }));
-    box.appendChild(h('button', { class: 'btn ghost', text: 'ADD TO A GROUP', onclick: function () { sh.close(); addToGroupSheet(s); } }));
+    box.appendChild(h('button', { class: 'btn', text: 'Send to a friend', onclick: function () { sh.close(); sendSheet(s); } }));
+    box.appendChild(h('button', { class: 'btn ghost', text: 'Add to a group', onclick: function () { sh.close(); addToGroupSheet(s); } }));
     if (s.mine) {
-      box.appendChild(h('button', { class: 'btn red', text: 'DELETE FOR EVERYONE', onclick: async function () {
+      box.appendChild(h('button', { class: 'btn red', text: 'Delete for everyone', onclick: async function () {
         sh.close();
         try {
           var r = await sb.from('sounds').delete().eq('id', s.id);
@@ -455,7 +469,7 @@
         } catch (e) { fail(e); }
       } }));
     } else {
-      box.appendChild(h('button', { class: 'btn red', text: 'REMOVE FROM MY BOARD', onclick: async function () {
+      box.appendChild(h('button', { class: 'btn red', text: 'Remove from my board', onclick: async function () {
         sh.close();
         try {
           var r = await sb.from('saved_sounds').delete().eq('user_id', me.id).eq('sound_id', s.id);
@@ -464,7 +478,7 @@
         } catch (e) { fail(e); }
       } }));
     }
-    box.appendChild(h('button', { class: 'btn ghost', text: 'CLOSE', onclick: function () { sh.close(); } }));
+    box.appendChild(h('button', { class: 'btn ghost', text: 'Close', onclick: function () { sh.close(); } }));
   }
 
   function addSoundSheet() {
@@ -482,8 +496,8 @@
       row.appendChild(b);
     });
     var err = h('div', { class: 'err' });
-    var go = h('button', { class: 'btn', text: 'UPLOAD' });
-    var sh = sheet('Add a sound', [file, nameIn, row, err, go, h('button', { class: 'btn ghost', text: 'CANCEL', onclick: function () { sh.close(); } })]);
+    var go = h('button', { class: 'btn', text: 'Upload' });
+    var sh = sheet('Add a sound', [file, nameIn, row, err, go, h('button', { class: 'btn ghost', text: 'Cancel', onclick: function () { sh.close(); } })]);
 
     file.addEventListener('change', function () {
       var f = file.files[0];
@@ -499,7 +513,7 @@
       var ext = ((f.name.split('.').pop() || 'mp3').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5)) || 'mp3';
       var path = me.id + '/' + uuid() + '.' + ext;
       go.disabled = true;
-      go.textContent = 'UPLOADING...';
+      go.textContent = 'Uploading...';
       try {
         var up = await sb.storage.from('sounds').upload(path, f, { contentType: f.type || MIME[ext] || 'audio/mpeg', upsert: false });
         if (up.error) throw up.error;
@@ -511,7 +525,7 @@
       } catch (e) {
         err.textContent = e.message || String(e);
         go.disabled = false;
-        go.textContent = 'UPLOAD';
+        go.textContent = 'Upload';
       }
     });
   }
@@ -536,7 +550,7 @@
           } catch (e) { fail(e); }
         } }));
       });
-      box.appendChild(h('button', { class: 'btn ghost', text: 'CANCEL', onclick: function () { sh.close(); } }));
+      box.appendChild(h('button', { class: 'btn ghost', text: 'Cancel', onclick: function () { sh.close(); } }));
     } catch (e) { sh.close(); fail(e); }
   }
 
@@ -557,28 +571,28 @@
           } catch (e) { fail(e); }
         } }));
       });
-      box.appendChild(h('button', { class: 'btn ghost', text: 'CANCEL', onclick: function () { sh.close(); } }));
+      box.appendChild(h('button', { class: 'btn ghost', text: 'Cancel', onclick: function () { sh.close(); } }));
     } catch (e) { sh.close(); fail(e); }
   }
 
   // ---------- groups ----------
   async function showGroups() {
-    setView('groups', 'GROUPS', false);
+    setView('groups', 'Groups', false);
     try {
       var groups = await fetchGroups();
       ui.content.innerHTML = '';
-      ui.content.appendChild(h('div', { class: 'bar' }, [
-        h('button', { class: 'btn small', text: '+ NEW GROUP', onclick: newGroupSheet }),
-        h('button', { class: 'btn small ghost', text: 'JOIN WITH CODE', onclick: joinSheet })
-      ]));
+      ui.content.appendChild(h('button', { class: 'chip', onclick: joinSheet }, [icon('plus', 16), 'Join with code']));
       var list = h('div', { class: 'list' });
       groups.forEach(function (g) {
-        list.appendChild(h('div', { class: 'row', onclick: function () { showGroup(g); } }, [
-          h('div', { class: 'emoji', text: g.is_everyone ? '\uD83C\uDF0D' : '\uD83D\uDC65' }),
+        var av = h('div', { class: 'gav', text: g.is_everyone ? '\uD83C\uDF0D' : '\uD83D\uDC65' });
+        tint(av, g.name);
+        list.appendChild(h('div', { class: 'card', onclick: function () { showGroup(g); } }, [
+          av,
           h('div', { class: 'main' }, [
             h('div', { class: 'name', text: g.name }),
             h('div', { class: 'meta' }, ['code ', h('span', { class: 'code', text: g.code })])
-          ])
+          ]),
+          icon('chev', 20)
         ]));
       });
       ui.content.appendChild(list);
@@ -588,8 +602,8 @@
   function newGroupSheet() {
     var nameIn = h('input', { class: 'field', placeholder: 'group name', maxlength: '30' });
     var err = h('div', { class: 'err' });
-    var go = h('button', { class: 'btn', text: 'CREATE' });
-    var sh = sheet('New group', [nameIn, err, go, h('button', { class: 'btn ghost', text: 'CANCEL', onclick: function () { sh.close(); } })]);
+    var go = h('button', { class: 'btn', text: 'Create' });
+    var sh = sheet('New group', [nameIn, err, go, h('button', { class: 'btn ghost', text: 'Cancel', onclick: function () { sh.close(); } })]);
     go.addEventListener('click', async function () {
       err.textContent = '';
       try {
@@ -606,8 +620,8 @@
   function joinSheet() {
     var codeIn = h('input', { class: 'field', placeholder: 'group code', autocapitalize: 'characters' });
     var err = h('div', { class: 'err' });
-    var go = h('button', { class: 'btn', text: 'JOIN' });
-    var sh = sheet('Join a group', [codeIn, err, go, h('button', { class: 'btn ghost', text: 'CANCEL', onclick: function () { sh.close(); } })]);
+    var go = h('button', { class: 'btn', text: 'Join' });
+    var sh = sheet('Join a group', [codeIn, err, go, h('button', { class: 'btn ghost', text: 'Cancel', onclick: function () { sh.close(); } })]);
     go.addEventListener('click', async function () {
       err.textContent = '';
       try {
@@ -621,6 +635,7 @@
   }
 
   async function showGroup(g) {
+    currentGroup = g;
     setView('group', g.name, true);
     try {
       var gs = await sb.from('group_sounds').select('added_by, sound:sounds(*)').eq('group_id', g.id).order('added_at', { ascending: false });
@@ -631,11 +646,12 @@
 
       ui.content.innerHTML = '';
       ui.content.appendChild(h('div', { class: 'bar' }, [
-        h('button', { class: 'btn small', text: '+ FROM MY BOARD', onclick: function () { pickFromBoardSheet(g); } }),
-        h('button', { class: 'btn small ghost', text: 'CODE ' + g.code, onclick: function () {
+        h('button', { class: 'chip', style: 'margin:0', onclick: function () {
           if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(g.code).then(function () { toast('Code copied'); }, function () { toast('Code: ' + g.code); });
           else toast('Code: ' + g.code);
-        } })
+        } }, ['Code ', h('b', { class: 'code', text: g.code })]),
+        h('div', { style: 'flex:1' }),
+        h('button', { class: 'round big', onclick: randomPlay }, [icon('shuffle', 20)])
       ]));
       ui.content.appendChild(h('div', { class: 'hint', text: 'Members: ' + names }));
       var grid = h('div', { class: 'grid' });
@@ -648,7 +664,7 @@
       ui.content.appendChild(grid);
       if (!g.is_everyone) {
         ui.content.appendChild(h('div', { style: 'margin-top:22px' }, [
-          h('button', { class: 'btn red', text: 'LEAVE GROUP', onclick: async function () {
+          h('button', { class: 'btn red', text: 'Leave group', onclick: async function () {
             try {
               var r = await sb.from('group_members').delete().eq('group_id', g.id).eq('user_id', me.id);
               if (r.error) throw r.error;
@@ -663,7 +679,7 @@
   function groupActions(g, s) {
     var sh = sheet(s.emoji + ' ' + s.name, []);
     var box = sh.box;
-    box.appendChild(h('button', { class: 'btn', text: 'SAVE TO MY BOARD', onclick: async function () {
+    box.appendChild(h('button', { class: 'btn', text: 'Save to my board', onclick: async function () {
       sh.close();
       try {
         var r = await sb.from('saved_sounds').insert({ user_id: me.id, sound_id: s.id });
@@ -671,9 +687,9 @@
         toast(r.error ? 'Already on your board' : 'Saved to your board');
       } catch (e) { fail(e); }
     } }));
-    box.appendChild(h('button', { class: 'btn ghost', text: 'SEND TO A FRIEND', onclick: function () { sh.close(); sendSheet(s); } }));
+    box.appendChild(h('button', { class: 'btn ghost', text: 'Send to a friend', onclick: function () { sh.close(); sendSheet(s); } }));
     if (s.added_by === me.id) {
-      box.appendChild(h('button', { class: 'btn red', text: 'REMOVE FROM GROUP', onclick: async function () {
+      box.appendChild(h('button', { class: 'btn red', text: 'Remove from group', onclick: async function () {
         sh.close();
         try {
           var r = await sb.from('group_sounds').delete().eq('group_id', g.id).eq('sound_id', s.id);
@@ -682,7 +698,7 @@
         } catch (e) { fail(e); }
       } }));
     }
-    box.appendChild(h('button', { class: 'btn ghost', text: 'CLOSE', onclick: function () { sh.close(); } }));
+    box.appendChild(h('button', { class: 'btn ghost', text: 'Close', onclick: function () { sh.close(); } }));
   }
 
   async function pickFromBoardSheet(g) {
@@ -704,13 +720,13 @@
           } catch (e) { fail(e); }
         } }));
       });
-      box.appendChild(h('button', { class: 'btn ghost', text: 'CANCEL', onclick: function () { sh.close(); } }));
+      box.appendChild(h('button', { class: 'btn ghost', text: 'Cancel', onclick: function () { sh.close(); } }));
     } catch (e) { sh.close(); fail(e); }
   }
 
   // ---------- inbox ----------
   async function showInbox() {
-    setView('inbox', 'INBOX', false);
+    setView('inbox', 'Inbox', false);
     try {
       var r = await sb.from('shares')
         .select('id, created_at, sound:sounds(*), sender:profiles!shares_from_user_fkey(username)')
@@ -725,9 +741,9 @@
       }
       var list = h('div', { class: 'list' });
       rows.forEach(function (x) {
-        var playBtn = h('button', { class: 'iconbtn', text: 'PLAY' });
+        var playBtn = h('button', { class: 'round' }, [icon('play', 16)]);
         playBtn.addEventListener('click', function () { playSound(x.sound, null); });
-        var add = h('button', { class: 'iconbtn', text: 'ADD' });
+        var add = h('button', { class: 'chip primary', text: 'Add' });
         add.addEventListener('click', async function () {
           try {
             var ins = await sb.from('saved_sounds').insert({ user_id: me.id, sound_id: x.sound.id });
@@ -738,7 +754,7 @@
             showInbox();
           } catch (e) { fail(e); }
         });
-        var no = h('button', { class: 'iconbtn', text: 'X' });
+        var no = h('button', { class: 'round' }, [icon('x', 16)]);
         no.addEventListener('click', async function () {
           try {
             var del = await sb.from('shares').delete().eq('id', x.id);
@@ -746,8 +762,10 @@
             showInbox();
           } catch (e) { fail(e); }
         });
-        list.appendChild(h('div', { class: 'row' }, [
-          h('div', { class: 'emoji', text: x.sound.emoji }),
+        var av = h('div', { class: 'gav', text: x.sound.emoji });
+        tint(av, x.sound.name + x.sound.emoji);
+        list.appendChild(h('div', { class: 'card' }, [
+          av,
           h('div', { class: 'main' }, [
             h('div', { class: 'name', text: x.sound.name }),
             h('div', { class: 'meta', text: 'from ' + (x.sender ? x.sender.username : '?') })
@@ -767,13 +785,29 @@
       fail(e);
       me = null;
     }
+    if (recovering) return;
+    if (me && me.missing) {
+      var pend = getPending();
+      if (pend) {
+        try {
+          var f = await sb.rpc('finish_signup', { p_username: pend.username, p_code: pend.code });
+          if (f.error) throw f.error;
+          setPending(null);
+          me = await loadMe();
+        } catch (e) {
+          authView('finish', niceError(e));
+          return;
+        }
+      }
+    }
     if (!me) authView('login');
     else if (me.missing) authView('finish');
     else appView();
   }
 
   sb.auth.onAuthStateChange(function (ev) {
-    if (ev === 'SIGNED_OUT') { me = null; stopAudio(); authView('login'); }
+    if (ev === 'PASSWORD_RECOVERY') { recovering = true; authView('recover'); }
+    else if (ev === 'SIGNED_OUT') { me = null; stopAudio(); authView('login'); }
   });
 
   boot();
